@@ -4,10 +4,13 @@ import random
 from typing import List
 import time, asyncio
 from generar_datos import generador_sensor_datos
+from abc import ABC, abstractmethod
+from typing import Any, Optional
+from functools import reduce
+import asyncio
+from generar_datos import generador_sensor_datos
 
-##El gestor de datos, realmente es un observador de un sujeto, que en este caso es el Invernadero.
-
-
+# Estructura Observer
 class Sujeto(ABC):
     """
     La interfaz Sujeto declara un conjunto de métodos para gestionar los observadores.
@@ -62,61 +65,7 @@ cada vez que cambie el estado del invernadero. Podrían existir más observadore
 deseos de cuando quieren ser notificados.
 """
 
-##implementación del sistema gestor con estructura singleton. Además es un observador concreto del invernadero
-class Gestion_datos(Observador):
-    _instancia_unica = None
-
-    def __init__(self):
-        self.nombre = "Gestor 1"
-        self._datos = []
-        self._datos_30 = []
-        self._estrategia = None
-        self._manejador = None
-        self._inicio = None         #La unica forma de controlar cuando se llama por primera vez a actualizar. Investigar como se puede mejorar
-
-    @classmethod
-    def obtener_instancia(cls):
-        if not cls._instancia_unica:
-            cls._instancia_unica = cls()
-        return cls._instancia_unica
-
-    @property
-    def manejador(self) -> Manejador:
-        return self._manejador
-
-    @manejador.setter          #importante pasar una cadena de manejadores al gestor antes de inicializar el sensor.
-    def manejador(self, manejador: Manejador) -> None:
-        """
-        Por lo general, el sistema permite reemplazar un objeto de Estrategia en tiempo de ejecución.
-        """
-        self._manejador = manejador
-
-    def actualizar(self, estado) -> str:
-        """
-        Como el gestor de datos al principio no contiene datos, comenzaré analizando la primera llamada. Así, podré
-        ver si han pasado 30 segundos y almacenar de forma paralela estos datos de los últimos 30 segundos que se
-        pasarán al manejador que comprueba si estas temperaturas han aumentado en más de 10º
-        """
-        control_ejecucion = False
-        if len(self._datos_30) == 0:
-            self._inicio = time.time()
-            self._datos_30.append(estado[1])
-        else:
-            self._datos_30.append(estado[1]) ##MEJORAR
-            if time.time() - self._inicio >= 30:
-                control_ejecucion = True
-            
-        print(f"{self.nombre}: He recibido la notificación del estado actual del invernadero: {estado}")
-        self._datos.append(estado[1])
-        print(f"{self.nombre}: Ordenando pasos encadenados")
-        print(f"datos totales: {self._datos}")
-        print(f"datos últimos 30 segundos: {self._datos_30}")
-        self._manejador.manejar(self._datos, self._datos_30, control_ejecucion)
-        if control_ejecucion:
-            self._datos_30 = []
-
-##implementación de los sujetos con estructura observer.
-
+##implementación del sujeto (Invernadero) con estructura observer.
 class Invernadero(Sujeto):
     """
     El Sujeto posee un estado importante (temperatura) y notifica a los observadores cuando cambia.
@@ -173,11 +122,50 @@ class Invernadero(Sujeto):
             self.modificar_estado(dato)
 
 
-###implementación de cómo manejará el sistema gestor de datos cada notificación del invernadero
-from abc import ABC, abstractmethod
-from typing import Any, Optional
+##implementación del sistema gestor con estructura singleton. Además es un observador concreto del invernadero
+class Gestion_datos(Observador):
+    _instancia_unica = None
+
+    def __init__(self):
+        self.nombre = "Gestor 1"
+        self._datos = []
+        self._datos_60 = []
+        self._datos_30 = []
+        self._estrategia = None
+        self._manejador = None
+
+    @classmethod
+    def obtener_instancia(cls):
+        if not cls._instancia_unica:
+            cls._instancia_unica = cls()
+        return cls._instancia_unica
+
+    @property
+    def manejador(self) -> Manejador:
+        return self._manejador
+
+    @manejador.setter          #importante pasar una cadena de manejadores al gestor antes de inicializar el sensor.
+    def manejador(self, manejador: Manejador) -> None:
+        self._manejador = manejador
+
+    def actualizar(self, estado) -> str:
+        self._datos.append(estado[1])
+        self._datos_60.append(estado[1])
+        self._datos_30.append(estado[1])
+        if len(self._datos_60) > 6: # 30 seg
+            self._datos_30 = self._datos_60[-6:]
+        if len(self._datos_60) > 12: # 60 seg
+            self._datos_60 = self._datos_60[-12:]
+        print(f"{self.nombre}: He recibido la notificación del estado actual del invernadero: {estado}")
+        print(f"{self.nombre}: Ordenando pasos encadenados")
+        print(f"datos totales: {self._datos}")
+        print(f"datos últimos 30 segundos: {self._datos_30}")
+        print(f"datos últimos 60 segundos: {self._datos_60}")
+        self._manejador.manejar(self._datos_60, self._datos_30)
 
 
+
+###implementación de manejadores que utilizará el sistema gestor de datos con cada notificación del invernadero
 class Manejador(ABC):
     """
     La interfaz Manejador declara un método para construir la cadena de
@@ -206,9 +194,9 @@ class ManejadorAbstracto(Manejador):
         return manejador
 
     @abstractmethod
-    def manejar(self, datos: list, datos_30 : list, control : bool) -> str:
+    def manejar(self, datos_60: list, datos_30 : list) -> str:
         if self._siguiente_manejador:
-            return self._siguiente_manejador.manejar(datos, datos_30, control)
+            return self._siguiente_manejador.manejar(datos_60, datos_30)
         return None
 
 
@@ -217,10 +205,35 @@ Todos los manejadores concretos manejan una solicitud o la pasan al siguiente
 manejador en la cadena.
 """
 
-from functools import reduce
+class Umbral(ManejadorAbstracto):
+    def manejar(self, datos_60: list, datos_30 : list) -> str:      #fijamos el Umbral por defecto en 10
+        umbral = 10
+        resultado = datos_60[-1] > umbral
+        if resultado:
+            resultado = "Si"
+        else:
+            resultado = "No"
+        print(f"La temperatura {datos_60[-1]} excede del umbral {umbral}: {resultado}")
+        return super().manejar(datos_60, datos_30)
+
+
+class Cambio_drastico(ManejadorAbstracto):
+    def cambio_drastico(self, l, umbral):
+        diff = max(l) - min(l)
+        return diff > umbral
+    
+    def manejar(self, datos_60: List, datos_30 : list) -> str:
+        resultado = self.cambio_drastico(datos_30, 10)
+        if resultado:
+            resultado = "Si"
+        else:
+            resultado = "No"
+        print(f"Comprobamos si durante los últimos 30 segs la temperatura ha aumentado en más de 10º: {resultado}")
+        return super().manejar(datos_60, datos_30)
+    
+# Estructura Strategy
 
 #Para el cómputo de los estadísticos, se utilizará la estructura strategy
-
 class Estrategia(ABC):
     """
     La interfaz de Estrategia declara operaciones comunes a todas las versiones admitidas
@@ -231,7 +244,7 @@ class Estrategia(ABC):
     """
 
     @abstractmethod
-    def realizar_algoritmo(self, datos: List):
+    def realizar_algoritmo(self, datos: list):
         pass
 
 
@@ -244,7 +257,7 @@ Las Estrategias Concretas implementan el algoritmo siguiendo la interfaz base de
 class Media(Estrategia):
     def realizar_algoritmo(self, l: List) -> List:
         suma = reduce(lambda x, y : x + y, l)
-        return suma / len(l)
+        return round(suma / len(l), 2)
 
 
 class Mediana(Estrategia):
@@ -260,7 +273,7 @@ class Mediana(Estrategia):
         return result
     
 class Desviacion_tipica(Estrategia):
-    def __aux_sd(self, l):
+    def __aux_sd(self, l):      #función auxiliar que utilizará el algoritmo
         valor_medio = Media().realizar_algoritmo(l)
         def f(n):
             return (n - valor_medio)**2
@@ -269,7 +282,7 @@ class Desviacion_tipica(Estrategia):
     def realizar_algoritmo(self, l: List):
         elementos_cuadrado =  list(map(self.__aux_sd(l), l))
         result = Media().realizar_algoritmo(elementos_cuadrado) ** (1 / 2)
-        return result
+        return round(result, 2)
 
 class Estadisticos(ManejadorAbstracto):     #importante pasar una estrategia a este manejador. Se le puede pasar al constructor o cambiarlo en el tiempo de ejecución
     def __init__(self, estrategia : Estrategia) -> None:
@@ -295,53 +308,17 @@ class Estadisticos(ManejadorAbstracto):     #importante pasar una estrategia a e
         """
         self._estrategia = estrategia 
 
-    def manejar(self, datos: List, datos_30 : list, control : bool) -> str:
-        print("Estadistico de la temperatura según la estrategia establecida:")
-        resultado = self._estrategia.realizar_algoritmo(datos)
+    def manejar(self, datos_60: list, datos_30 : list) -> str:
+        print(f"Estadistico de la temperatura según la estrategia establecida: {type(self._estrategia).__name__}")
+        resultado = self._estrategia.realizar_algoritmo(datos_60)
         if isinstance(self._estrategia, Media):
             print(f"Cálculo de la media: {resultado}")
         elif isinstance(self._estrategia, Mediana):
             print(f"Cálculo de la mediana: {resultado}")
         else: ##ojo, controlar si realmente viene de desviación tipica. Controlar posibles errores...
             print(f"Cálculo de la desviación típica: {resultado}")
-        return super().manejar(datos, datos_30, control)
+        return super().manejar(datos_60, datos_30)
 
-
-class Umbral(ManejadorAbstracto):
-    def manejar(self, datos: List, datos_30 : list, control : bool) -> str:      #fijamos el Umbral por defecto en 10
-        umbral = 10
-        print(f"La temperatura {datos[-1]} excede del umbral {umbral}: {datos[-1] > umbral}")
-        return super().manejar(datos, datos_30, control)
-
-
-class Cambio_drastico(ManejadorAbstracto):
-    ##Comparamos un elemento de la lista con el siguiente
-    def __aux_cd(self, l, umbral):
-        def f(n1):
-            if l.index(n1) == len(l) - 1: #El último elemento no se compara
-                return False
-            n2 = l[l.index(n1) + 1]
-            return n2 - n1 > umbral
-        return f
-
-    def cambio_drastico(self, l, umbral):
-        resultados_bool = list(map(self.__aux_cd(l, umbral), l))
-        return list(zip(l, resultados_bool))
-    
-    def manejar(self, datos: List, datos_30 : list, control : bool) -> str:
-        if control:
-            resultados = self.cambio_drastico(datos_30, 10)
-            print("Comprobamos si durante los últimos 30 segs la temperatura ha aumentado en más de 10º")
-            print(f"{resultados}")
-        return super().manejar(datos, datos_30, control)
-
-import asyncio
-from generar_datos import generador_sensor_datos
-
-async def obtener_datos():
-    async for dato in generador_sensor_datos():
-        print("Nuevo dato:", dato)
-        # Aquí puedes procesar los datos como desees
 
 async def main(): #para poder ejecutar las tareas de forma asíncrona
     invernadero = Invernadero()
