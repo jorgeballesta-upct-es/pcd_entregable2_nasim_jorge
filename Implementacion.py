@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional
 from functools import reduce
 import asyncio
-from generar_datos import generador_sensor_datos
 
 # Estructura Observer
 class Sujeto(ABC):
@@ -78,7 +77,7 @@ class Invernadero(Sujeto):
     suscriptores, se almacena en esta variable.
     """
 
-    _observadores: List[Observador] = []
+    _observadores: list[Observador] = []
 
     """
     Lista de suscriptores. En la vida real, la lista de suscriptores puede ser almacenada
@@ -131,7 +130,6 @@ class Gestion_datos(Observador):
         self._datos = []
         self._datos_60 = []
         self._datos_30 = []
-        self._estrategia = None
         self._manejador = None
 
     @classmethod
@@ -222,7 +220,7 @@ class Cambio_drastico(ManejadorAbstracto):
         diff = max(l) - min(l)
         return diff > umbral
     
-    def manejar(self, datos_60: List, datos_30 : list) -> str:
+    def manejar(self, datos_60: list, datos_30 : list) -> str:
         resultado = self.cambio_drastico(datos_30, 10)
         if resultado:
             resultado = "Si"
@@ -255,13 +253,13 @@ Las Estrategias Concretas implementan el algoritmo siguiendo la interfaz base de
 
 
 class Media(Estrategia):
-    def realizar_algoritmo(self, l: List) -> List:
+    def realizar_algoritmo(self, l: list) -> float:
         suma = reduce(lambda x, y : x + y, l)
         return round(suma / len(l), 2)
 
 
 class Mediana(Estrategia):
-    def realizar_algoritmo(self, l: List) -> List:
+    def realizar_algoritmo(self, l: list) -> float:
         lista_ordenada = sorted(l)
         if len(lista_ordenada) % 2 != 0: #con elementos impares devuelvo el elemento central de la lista ordenada
             result = lista_ordenada[len(lista_ordenada) // 2]
@@ -279,7 +277,7 @@ class Desviacion_tipica(Estrategia):
             return (n - valor_medio)**2
         return f
     
-    def realizar_algoritmo(self, l: List):
+    def realizar_algoritmo(self, l: list)-> float:
         elementos_cuadrado =  list(map(self.__aux_sd(l), l))
         result = Media().realizar_algoritmo(elementos_cuadrado) ** (1 / 2)
         return round(result, 2)
